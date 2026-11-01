@@ -4,14 +4,20 @@ import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
 import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patcher.patch.resourcePatch
 import org.w3c.dom.Element
+import java.io.File
 import java.util.logging.Logger
 
 private val logger = Logger.getLogger("CollapseAdSpace")
 
 private val entitlementKeys = listOf(
-    "ad_free", "ad-free", "adfree", "AdFree", "adFree", "Ad-Free",
-    "ad_free_access", "ad_free_yearly", "ad_free_monthly", "ad_free_subscription",
-    "remove_ads", "no_ads", "pro", "premium", "default"
+    "ad_free", "ad-free", "adfree", "AdFree", "adFree", "Ad-Free", "AD_FREE",
+    "Ad Free", "ad free", "Ad free",
+    "Remove Ads", "Remove ads", "remove_ads", "remove-ads", "removeAds", "removeads",
+    "No Ads", "no_ads", "no-ads", "noAds", "noads",
+    "ad_free_experience", "ad-free-experience", "Ad-Free Experience",
+    "ad_free_access", "ad_free_yearly", "ad_free_monthly", "ad_free_subscription", "ad_free_entitlement",
+    "liquipedia_ad_free", "liquipedia_pro", "liquipedia_premium", "liquipedia_supporter", "liquipedia_turbo",
+    "pro", "Pro", "premium", "Premium", "plus", "Plus", "supporter", "turbo", "default"
 )
 
 private val adTokenRegex = Regex(
@@ -53,6 +59,24 @@ private fun collapseElement(el: Element) {
     el.setAttribute("android:minWidth", "0.0dip")
 }
 
+private fun extractStringsFromBinary(file: File): List<String> {
+    val result = mutableListOf<String>()
+    val bytes = file.readBytes()
+    val sb = StringBuilder()
+    for (b in bytes) {
+        val c = b.toInt() and 0xFF
+        if (c in 32..126) {
+            sb.append(c.toChar())
+        } else {
+            if (sb.length in 4..120) {
+                result.add(sb.toString())
+            }
+            sb.setLength(0)
+        }
+    }
+    return result
+}
+
 private val collapseAdResourcesPatch = resourcePatch {
     execute {
         val rootDir = get(".")
@@ -83,6 +107,44 @@ private val collapseAdResourcesPatch = resourcePatch {
                                     collapseElement(el)
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Targeted, capped scan of libapp.so & flutter_assets for Liquipedia's exact entitlement/ad-free strings
+        val searchDirs = listOfNotNull(rootDir, rootDir.parentFile)
+        val visited = mutableSetOf<String>()
+        var loggedCount = 0
+        val dartTargetRegex = Regex("(?i)(ad_free|adfree|ad-free|remove_ads|remove ads|upgrade to an ad|5\\.99|goog_|entitlement|package:liquipedia.*[/(ad|purchase|sub|entitle|prem|banner|monetiz|config|env)])")
+
+        for (dir in searchDirs) {
+            dir.walkTopDown().forEach { file ->
+                if (!file.isFile || !visited.add(file.absolutePath)) return@forEach
+                if (file.name == "libapp.so" && loggedCount < 60) {
+                    runCatching {
+                        val strings = extractStringsFromBinary(file)
+                        logger.info("[X-Ray Dart] Scanning libapp.so (${strings.size} strings)")
+                        for (i in strings.indices) {
+                            val s = strings[i]
+                            if (dartTargetRegex.containsMatchIn(s)) {
+                                val start = (i - 3).coerceAtLeast(0)
+                                val end = (i + 3).coerceAtMost(strings.size - 1)
+                                val neighbors = strings.subList(start, end + 1)
+                                logger.info("[X-Ray DartHit] '$s' -> $neighbors")
+                                loggedCount++
+                                if (loggedCount >= 60) break
+                            }
+                        }
+                    }
+                } else if (file.path.contains("flutter_assets") && file.length() < 500_000 &&
+                    !file.name.endsWith(".png") && !file.name.endsWith(".ttf") && !file.name.endsWith(".otf")
+                ) {
+                    runCatching {
+                        val text = file.readText()
+                        if (text.contains("goog_", true) || text.contains("entitlement", true) || text.contains("ad_free", true)) {
+                            logger.info("[X-Ray Asset] ${file.name}: ${text.take(300).replace('\n', ' ')}")
                         }
                     }
                 }
@@ -162,6 +224,7 @@ val examplePatch = bytecodePatch(
             if (isInUnmaskedAdMob || isInUnmaskedFlutterAds ||
                 discoveredAdSizeClasses.contains(type) ||
                 type == "Lcom/revenuecat/purchases/hybridcommon/mappers/EntitlementInfosMapperKt;" ||
+                type == "Lcom/revenuecat/purchases/hybridcommon/mappers/CustomerInfoMapperKt;" ||
                 type == "Lcom/revenuecat/purchases/CustomerInfo;" ||
                 adSizeClassRegex.matches(type) ||
                 adViewClassRegex.matches(type) ||
@@ -187,8 +250,6 @@ val examplePatch = bytecodePatch(
                 }
             }
         }
-
-        logger.info("[X-Ray FlutterIds] base=$flutterAdBaseType(id=$flutterAdIdFieldName), mgr=$adInstanceManagerType->$onAdFailedMethodName, err=$flutterLoadAdErrorType")
 
         for (type in targetClasses) {
             runCatching {
@@ -284,9 +345,7 @@ val examplePatch = bytecodePatch(
 
                             runCatching {
                                 method.addInstructions(0, sb.toString())
-                                logger.info("[X-Ray RevenueCat] Hooked EntitlementInfosMapperKt.map safely!")
-                            }.onFailure { e ->
-                                logger.info("[X-Ray RCMapper Error] ${e.message}")
+                                logger.info("[X-Ray RevenueCat] Hooked EntitlementInfosMapperKt.map (${entitlementKeys.size} keys)")
                             }
                         }
                     }
@@ -296,18 +355,19 @@ val examplePatch = bytecodePatch(
                         if ((method.name == "getActiveSubscriptions" || method.name == "getAllPurchasedProductIds" || method.name == "getAllPurchasedSkus") &&
                             method.parameterTypes.isEmpty() &&
                             method.returnType == "Ljava/util/Set;" &&
-                            regCount >= 2
+                            regCount >= 3
                         ) {
+                            val sb = StringBuilder()
+                            sb.appendLine("new-instance v0, Ljava/util/HashSet;")
+                            sb.appendLine("invoke-direct {v0}, Ljava/util/HashSet;-><init>()V")
+                            for (key in entitlementKeys) {
+                                sb.appendLine("const-string v1, \"$key\"")
+                                sb.appendLine("invoke-virtual {v0, v1}, Ljava/util/HashSet;->add(Ljava/lang/Object;)Z")
+                            }
+                            sb.appendLine("return-object v0")
                             runCatching {
-                                method.addInstructions(
-                                    0,
-                                    """
-                                        const-string v0, "ad_free"
-                                        invoke-static {v0}, Ljava/util/Collections;->singleton(Ljava/lang/Object;)Ljava/util/Set;
-                                        move-result-object v0
-                                        return-object v0
-                                    """
-                                )
+                                method.addInstructions(0, sb.toString())
+                                logger.info("[X-Ray RevenueCat] Hooked CustomerInfo->${method.name}")
                             }
                         }
                     }
@@ -345,9 +405,6 @@ val examplePatch = bytecodePatch(
                                             return-void
                                         """
                                     )
-                                    logger.info("[X-Ray Bytecode] Hooked FlutterAd load $type->${method.name}()V to fire $onAdFailedMethodName at index 0!")
-                                }.onFailure { e ->
-                                    logger.info("[X-Ray FlutterAd Error] $type->${method.name}: ${e.message}")
                                 }
                             }
                         }
