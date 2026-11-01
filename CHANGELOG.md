@@ -1,3 +1,9 @@
+## [1.1.0](https://github.com/TheSilencer97/custom-patches/compare/v1.0.0...v1.1.0) (2026-11-01)
+
+### ✨ New Features
+
+* support flutter ads and sdks ([7d568c4](https://github.com/TheSilencer97/custom-patches/commit/7d568c45af6c21e58a1a997cb8bdc67bf777db93))
+
 ## 1.0.0 (2026-11-01)
 
 ### ✨ New Features
