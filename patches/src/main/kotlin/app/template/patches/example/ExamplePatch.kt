@@ -1,8 +1,10 @@
 package app.morphe.patches.example
 
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
+import app.morphe.patcher.extensions.InstructionExtensions.instructions
 import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patcher.patch.resourcePatch
+import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 import org.w3c.dom.Element
 import java.io.File
 import java.util.logging.Logger
@@ -68,7 +70,7 @@ private fun extractStringsFromBinary(file: File): List<String> {
         if (c in 32..126) {
             sb.append(c.toChar())
         } else {
-            if (sb.length in 4..120) {
+            if (sb.length in 3..140) {
                 result.add(sb.toString())
             }
             sb.setLength(0)
@@ -113,39 +115,25 @@ private val collapseAdResourcesPatch = resourcePatch {
             }
         }
 
-        // Targeted, capped scan of libapp.so & flutter_assets for Liquipedia's exact entitlement/ad-free strings
-        val searchDirs = listOfNotNull(rootDir, rootDir.parentFile)
-        val visited = mutableSetOf<String>()
-        var loggedCount = 0
-        val dartTargetRegex = Regex("(?i)(ad_free|adfree|ad-free|remove_ads|remove ads|upgrade to an ad|5\\.99|goog_|entitlement|package:liquipedia.*[/(ad|purchase|sub|entitle|prem|banner|monetiz|config|env)])")
-
-        for (dir in searchDirs) {
-            dir.walkTopDown().forEach { file ->
-                if (!file.isFile || !visited.add(file.absolutePath)) return@forEach
-                if (file.name == "libapp.so" && loggedCount < 60) {
-                    runCatching {
-                        val strings = extractStringsFromBinary(file)
-                        logger.info("[X-Ray Dart] Scanning libapp.so (${strings.size} strings)")
-                        for (i in strings.indices) {
-                            val s = strings[i]
-                            if (dartTargetRegex.containsMatchIn(s)) {
-                                val start = (i - 3).coerceAtLeast(0)
-                                val end = (i + 3).coerceAtMost(strings.size - 1)
-                                val neighbors = strings.subList(start, end + 1)
-                                logger.info("[X-Ray DartHit] '$s' -> $neighbors")
-                                loggedCount++
-                                if (loggedCount >= 60) break
-                            }
-                        }
-                    }
-                } else if (file.path.contains("flutter_assets") && file.length() < 500_000 &&
-                    !file.name.endsWith(".png") && !file.name.endsWith(".ttf") && !file.name.endsWith(".otf")
-                ) {
-                    runCatching {
-                        val text = file.readText()
-                        if (text.contains("goog_", true) || text.contains("entitlement", true) || text.contains("ad_free", true)) {
-                            logger.info("[X-Ray Asset] ${file.name}: ${text.take(300).replace('\n', ' ')}")
-                        }
+        // Request lib/arm64-v8a/libapp.so on-demand from Morphe's resource decoder
+        val candidatePaths = listOf(
+            "lib/arm64-v8a/libapp.so",
+            "lib/armeabi-v7a/libapp.so",
+            "lib/x86_64/libapp.so"
+        )
+        for (rel in candidatePaths) {
+            runCatching {
+                val libFile = get(rel)
+                if (libFile.exists() && libFile.isFile) {
+                    val strings = extractStringsFromBinary(libFile)
+                    logger.info("[X-Ray Dart] Extracted $rel (${strings.size} strings)")
+                    val hitRegex = Regex(
+                        "(?i)(ad_free|adfree|ad-free|remove_ads|removeads|remove ads|upgrade to an ad|5\\.99|goog_[a-z0-9_]+|entitlement|revenuecat|offering|manage subscription|package:liquipedia.*(ad|sub|pro|prem|purch|banner|entitle|monetiz|config|env|remote|feature))"
+                    )
+                    val hits = strings.filter { hitRegex.containsMatchIn(it) }.distinct()
+                    logger.info("[X-Ray Dart] Total matching strings: ${hits.size}")
+                    hits.take(150).chunked(5).forEach { chunk ->
+                        logger.info("[X-Ray DartHits] $chunk")
                     }
                 }
             }
@@ -173,8 +161,28 @@ val examplePatch = bytecodePatch(
         var adInstanceManagerType: String? = null
         var onAdFailedMethodName: String? = null
 
+        val inspectClasses = setOf(
+            "Lcom/revenuecat/purchases/hybridcommon/mappers/EntitlementInfoMapperKt;",
+            "Lcom/revenuecat/purchases/hybridcommon/mappers/EntitlementInfosMapperKt;",
+            "Lcom/revenuecat/purchases/hybridcommon/mappers/CustomerInfoMapperKt;",
+            "Lcom/revenuecat/purchases/hybridcommon/CommonKt;"
+        )
+
         classDefForEach { classDef ->
             val type = classDef.type
+            if (inspectClasses.contains(type)) {
+                for (m in classDef.methods) {
+                    if (m.name == "map" || m.name == "getCustomerInfo") {
+                        val refs = runCatching {
+                            m.instructions.mapNotNull { insn ->
+                                (insn as? ReferenceInstruction)?.reference?.toString()
+                            }
+                        }.getOrDefault(emptyList())
+                        logger.info("[X-Ray Inspect] $type->${m.name} regs=${m.implementation?.registerCount} refs=$refs")
+                    }
+                }
+            }
+
             if (type == "Lcom/google/ads/mediation/AbstractAdViewAdapter;") {
                 for (m in classDef.methods) {
                     if (m.name == "requestBannerAd" && m.parameterTypes.size >= 4) {
@@ -224,7 +232,6 @@ val examplePatch = bytecodePatch(
             if (isInUnmaskedAdMob || isInUnmaskedFlutterAds ||
                 discoveredAdSizeClasses.contains(type) ||
                 type == "Lcom/revenuecat/purchases/hybridcommon/mappers/EntitlementInfosMapperKt;" ||
-                type == "Lcom/revenuecat/purchases/hybridcommon/mappers/CustomerInfoMapperKt;" ||
                 type == "Lcom/revenuecat/purchases/CustomerInfo;" ||
                 adSizeClassRegex.matches(type) ||
                 adViewClassRegex.matches(type) ||
@@ -355,18 +362,18 @@ val examplePatch = bytecodePatch(
                         if ((method.name == "getActiveSubscriptions" || method.name == "getAllPurchasedProductIds" || method.name == "getAllPurchasedSkus") &&
                             method.parameterTypes.isEmpty() &&
                             method.returnType == "Ljava/util/Set;" &&
-                            regCount >= 3
+                            regCount >= 2
                         ) {
-                            val sb = StringBuilder()
-                            sb.appendLine("new-instance v0, Ljava/util/HashSet;")
-                            sb.appendLine("invoke-direct {v0}, Ljava/util/HashSet;-><init>()V")
-                            for (key in entitlementKeys) {
-                                sb.appendLine("const-string v1, \"$key\"")
-                                sb.appendLine("invoke-virtual {v0, v1}, Ljava/util/HashSet;->add(Ljava/lang/Object;)Z")
-                            }
-                            sb.appendLine("return-object v0")
                             runCatching {
-                                method.addInstructions(0, sb.toString())
+                                method.addInstructions(
+                                    0,
+                                    """
+                                        const-string v0, "ad_free"
+                                        invoke-static {v0}, Ljava/util/Collections;->singleton(Ljava/lang/Object;)Ljava/util/Set;
+                                        move-result-object v0
+                                        return-object v0
+                                    """
+                                )
                                 logger.info("[X-Ray RevenueCat] Hooked CustomerInfo->${method.name}")
                             }
                         }
