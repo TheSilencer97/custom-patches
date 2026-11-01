@@ -9,12 +9,26 @@ import java.util.logging.Logger
 private val logger = Logger.getLogger("CollapseAdSpace")
 
 private val adTokenRegex = Regex(
-    "(?i)(^|[._/\\-])(ad|ads|adview|banner|dfp|gam|mopub|mrec|native_ad|ad_unit|ad_container|ad_wrapper|ad_slot|ad_holder|ad_frame|ad_space|ad_banner|banner_ad|ad_view|ad_layout|ad_placeholder|ad_card|ad_item|ad_box|ad_strip|ad_bar|sponsored_ad)([._/\\-]|$)" +
-        "|(?i)(^|[._/\\-])(ad|ads|banner|dfp|gam|mopub|mrec)(View|Container|Wrapper|Layout|Frame|Holder|Slot|Unit|Banner|Space|Card|Item|Box|Size|Height|Width|Margin|Padding|Placeholder|Header|Footer|Strip|Bar|Loader|Controller|Manager|Helper|Adapter|Module|Section|Zone|Block)s?([._/\\-]|$)"
+    "(?i)(^|[._/\\-])(ad|ads|adview|admob|applovin|banner|dfp|gam|mopub|mrec|native_ad|ad_unit|ad_container|ad_wrapper|ad_slot|ad_holder|ad_frame|ad_space|ad_banner|banner_ad|ad_view|ad_layout|ad_placeholder|ad_card|ad_item|ad_box|ad_strip|ad_bar|sponsored_ad)([._/\\-]|$)" +
+        "|(?i)(^|[._/\\-])(ad|ads|banner|dfp|gam|mopub|mrec)(View|Container|Wrapper|Layout|Frame|Holder|Slot|Unit|Banner|Space|Card|Item|Box|Size|Height|Width|Margin|Padding|Placeholder|Header|Footer|Strip|Bar|Loader|Controller|Manager|Helper|Adapter|Module|Section|Zone|Block)s?([._/\\-]|$)" +
+        "|((^|[a-z0-9_/$])(Ad|Ads|Banner|Dfp|Gam|Mopub|Mrec|NativeAd)(View|Container|Wrapper|Layout|Frame|Holder|Slot|Unit|Banner|Space|Card|Item|Box|Size|Height|Width|Placeholder|Strip|Bar|Loader|Request|Manager|InstanceManager|Plugin|Widget|Factory|Listener|Callback)s?($|[A-Z0-9_;]))" +
+        "|((^|[a-z0-9_/$])(Flutter|GoogleMobile|Max|Banner|Native|Interstitial|Rewarded|AppOpen|Fluid|Publisher|AdManager)(Ad|Ads|BannerAd|NativeAd|AdView|AdSize|AdLoader|AdRequest)s?($|[A-Z0-9_;]))"
 )
 
 private val adViewClassRegex = Regex(
-    "(?i).*(AdView|BannerView|AdContainer|AdWrapper|AdLayout|AdSlot|AdFrame|AdHolder|AdPlaceholder|BannerContainer|AdBanner|DfpAd|GamAd|MaxAdView|PublisherAdView|AdManagerAdView|NativeAdView);$"
+    "(?i).*(AdView|BannerView|BannerAdView|AdContainer|AdWrapper|AdLayout|AdSlot|AdFrame|AdHolder|AdPlaceholder|BannerContainer|AdBanner|DfpAd|GamAd|MaxAdView|PublisherAdView|AdManagerAdView|NativeAdView);$"
+)
+
+private val adSizeClassRegex = Regex(
+    "(?i).*(/AdSize|/FlutterAdSize|/FlutterAdSize\\\$[A-Za-z0-9_]+|/BannerAdSize|/MaxAdFormat);$"
+)
+
+private val adSdkPackageRegex = Regex(
+    "^L(io/flutter/plugins/googlemobileads|com/google/android/gms/ads|com/yandex/mobile/ads|com/facebook/ads|com/applovin/mediation|com/applovin/adview|com/mopub/mobileads)/.*"
+)
+
+private val adLoadMethodRegex = Regex(
+    "^(load|loadAd|loadAds|loadBanner|loadBannerAd|loadNativeAd|loadInterstitialAd|loadRewardedAd|loadRewardedInterstitialAd|loadAppOpenAd|loadAdManagerBannerAd|loadAdManagerInterstitialAd|loadFluidAd|onAdLoaded|show|showAd|showInterstitial)$"
 )
 
 private val adEnableGetterRegex = Regex(
@@ -23,7 +37,7 @@ private val adEnableGetterRegex = Regex(
 )
 
 private val adFreeGetterRegex = Regex(
-    "(?i)^(isAdFree|isAdsDisabled|areAdsDisabled|areAdsRemoved|isNoAds|getAdFree)$"
+    "(?i)^(isAdFree|isAdsDisabled|areAdsDisabled|areAdsRemoved|isNoAds|getAdFree|isPremium|isSubscribed|isPro|hasActiveSubscription)$"
 )
 
 private fun isAdRelated(text: String): Boolean {
@@ -31,6 +45,8 @@ private fun isAdRelated(text: String): Boolean {
     val cleaned = text.substringAfterLast('/')
     return adTokenRegex.containsMatchIn(cleaned) ||
         text.contains("com.google.android.gms.ads", ignoreCase = true) ||
+        text.contains("io.flutter.plugins.googlemobileads", ignoreCase = true) ||
+        text.contains("com.yandex.mobile.ads", ignoreCase = true) ||
         text.contains("com.applovin.mediation.ads", ignoreCase = true) ||
         text.contains("com.mopub.mobileads", ignoreCase = true)
 }
@@ -160,7 +176,7 @@ private val collapseAdResourcesPatch = resourcePatch {
 @Suppress("unused")
 val examplePatch = bytecodePatch(
     name = "Collapse Ad Space",
-    description = "Collapses empty ad banners, placeholders, and containers across layouts and code.",
+    description = "Collapses empty ad banners, placeholders, Flutter ads, and containers across layouts and code.",
     default = false,
 ) {
     dependsOn(collapseAdResourcesPatch)
@@ -170,10 +186,28 @@ val examplePatch = bytecodePatch(
 
         classDefForEach { classDef ->
             val type = classDef.type
-            if (type == "Lcom/google/android/gms/ads/AdSize;" ||
-                adViewClassRegex.matches(type)
+            val interfaces = classDef.interfaces
+
+            if (type == "Lio/flutter/plugins/GeneratedPluginRegistrant;" ||
+                interfaces.contains("Lio/flutter/embedding/engine/plugins/FlutterPlugin;") ||
+                interfaces.contains("Lio/flutter/plugin/platform/PlatformViewFactory;")
+            ) {
+                val methodList = classDef.methods.joinToString(", ") {
+                    "${it.name}(${it.parameterTypes.joinToString("")})${it.returnType}"
+                }
+                logger.info("[X-Ray FlutterPlugin] $type (super=${classDef.superclass}, interfaces=$interfaces) -> $methodList")
+            }
+
+            if (adSizeClassRegex.matches(type) ||
+                adViewClassRegex.matches(type) ||
+                adSdkPackageRegex.matches(type)
             ) {
                 targetClasses.add(type)
+                if (type.startsWith("Lio/flutter/plugins/googlemobileads/") ||
+                    type.startsWith("Lcom/yandex/mobile/ads/")
+                ) {
+                    logger.info("[X-Ray AdSDK] $type")
+                }
             } else if (!type.startsWith("Landroid/") &&
                 !type.startsWith("Landroidx/") &&
                 !type.startsWith("Lkotlin/") &&
@@ -183,7 +217,7 @@ val examplePatch = bytecodePatch(
                 !type.startsWith("Lcom/google/common/")
             ) {
                 val simpleName = type.substringAfterLast('/').removeSuffix(";")
-                if (isAdRelated(simpleName)) {
+                if (isAdRelated(simpleName) || type.contains("liquipedia", ignoreCase = true)) {
                     targetClasses.add(type)
                     val methodList = classDef.methods.joinToString(", ") {
                         "${it.name}(${it.parameterTypes.joinToString("")})${it.returnType}"
@@ -205,12 +239,13 @@ val examplePatch = bytecodePatch(
             runCatching {
                 val mutableClass = mutableClassDefBy(type)
 
-                if (type == "Lcom/google/android/gms/ads/AdSize;") {
+                // 1. Zero out AdSize / FlutterAdSize / BannerAdSize dimensions
+                if (adSizeClassRegex.matches(type)) {
                     for (method in mutableClass.methods) {
+                        val regCount = method.implementation?.registerCount ?: 0
                         if ((method.name == "getHeight" || method.name == "getHeightInPixels" ||
                                 method.name == "getWidth" || method.name == "getWidthInPixels") &&
-                            method.returnType == "I" &&
-                            (method.implementation?.registerCount ?: 0) >= 1
+                            method.returnType == "I" && regCount >= 1
                         ) {
                             runCatching {
                                 method.addInstructions(
@@ -220,13 +255,51 @@ val examplePatch = bytecodePatch(
                                         return v0
                                     """
                                 )
-                                logger.info("[X-Ray Bytecode] Zeroed AdSize->${method.name}")
+                                logger.info("[X-Ray Bytecode] Zeroed $type->${method.name}")
+                            }
+                        } else if (method.name == "<init>" &&
+                            method.parameterTypes.size >= 2 &&
+                            method.parameterTypes[0] == "I" &&
+                            method.parameterTypes[1] == "I" &&
+                            regCount in 3..15
+                        ) {
+                            runCatching {
+                                method.addInstructions(
+                                    0,
+                                    """
+                                        const/4 p1, 0x0
+                                        const/4 p2, 0x0
+                                    """
+                                )
+                                logger.info("[X-Ray Bytecode] Zeroed constructor width/height in $type")
                             }
                         }
                     }
                 }
 
-                if (adViewClassRegex.matches(type)) {
+                // 2. Block ad loading and onAdLoaded callbacks in Ad SDKs & Flutter GoogleMobileAds
+                if (adSdkPackageRegex.matches(type) || adViewClassRegex.matches(type)) {
+                    for (method in mutableClass.methods) {
+                        val regCount = method.implementation?.registerCount ?: 0
+                        if (adLoadMethodRegex.matches(method.name) &&
+                            method.returnType == "V" &&
+                            regCount >= 1
+                        ) {
+                            runCatching {
+                                method.addInstructions(
+                                    0,
+                                    """
+                                        return-void
+                                    """
+                                )
+                                logger.info("[X-Ray Bytecode] Blocked $type->${method.name}")
+                            }
+                        }
+                    }
+                }
+
+                // 3. Collapse Android View onMeasure & setVisibility on AdViews
+                if (adViewClassRegex.matches(type) || adSdkPackageRegex.matches(type)) {
                     for (method in mutableClass.methods) {
                         val regCount = method.implementation?.registerCount ?: 0
                         if (method.name == "onMeasure" &&
@@ -266,6 +339,7 @@ val examplePatch = bytecodePatch(
                     }
                 }
 
+                // 4. Flip boolean ad/pro getters
                 for (method in mutableClass.methods) {
                     val regCount = method.implementation?.registerCount ?: 0
                     if (method.parameterTypes.isEmpty() && method.returnType == "Z" && regCount >= 1) {
