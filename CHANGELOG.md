@@ -1,3 +1,9 @@
+## [1.6.1](https://github.com/TheSilencer97/custom-patches/compare/v1.6.0...v1.6.1) (2026-11-01)
+
+### 🐛 Bug Fixes
+
+* use Long timestamps in entitlement map and add entitlement key ([ba6f6e9](https://github.com/TheSilencer97/custom-patches/commit/ba6f6e9346fc5123689c569416561508a9f12b1c))
+
 ## [1.6.0](https://github.com/TheSilencer97/custom-patches/compare/v1.5.0...v1.6.0) (2026-11-01)
 
 ### ✨ New Features
