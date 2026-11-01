@@ -1,10 +1,10 @@
 {
   "NOTE": "Do NOT manually edit this file. This file is automatically updated when semantic release (release.yml) runs. Manually editing this file can break your releases and break third party tools that use this file.",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "patches": [
     {
       "name": "Collapse Ad Space",
-      "description": "Collapses empty ad banners, placeholders, Flutter ads, and obfuscated AdMob containers across layouts and code.",
+      "description": "Collapses empty ad banners, placeholders, Flutter ads, and RevenueCat ad-free state.",
       "default": false,
       "category": null,
       "compatiblePackages": null,

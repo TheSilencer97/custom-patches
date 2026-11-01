@@ -1,3 +1,9 @@
+## [1.3.0](https://github.com/TheSilencer97/custom-patches/compare/v1.2.0...v1.3.0) (2026-11-01)
+
+### ✨ New Features
+
+* trigger flutter onAdFailedToLoad and bridge revenuecat ([5472fc6](https://github.com/TheSilencer97/custom-patches/commit/5472fc65aa6ba3c84863ecf1f832616db76aa6d7))
+
 ## [1.2.0](https://github.com/TheSilencer97/custom-patches/compare/v1.1.0...v1.2.0) (2026-11-01)
 
 ### ✨ New Features

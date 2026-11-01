@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-01T05:06:53",
-  "description": "## [1.2.0](https://github.com/TheSilencer97/custom-patches/compare/v1.1.0...v1.2.0) (2026-11-01)\n\n### ✨ New Features\n\n* unmask obfuscated admob and flutter ads ([d6bc2cf](https://github.com/TheSilencer97/custom-patches/commit/d6bc2cfe790bb1b94ba53a59173b5da7450bcaf2))",
-  "download_url": "https://github.com/TheSilencer97/custom-patches/releases/download/v1.2.0/patches-1.2.0.mpp",
+  "created_at": "2026-11-01T15:52:39",
+  "description": "## [1.3.0](https://github.com/TheSilencer97/custom-patches/compare/v1.2.0...v1.3.0) (2026-11-01)\n\n### ✨ New Features\n\n* trigger flutter onAdFailedToLoad and bridge revenuecat ([5472fc6](https://github.com/TheSilencer97/custom-patches/commit/5472fc65aa6ba3c84863ecf1f832616db76aa6d7))",
+  "download_url": "https://github.com/TheSilencer97/custom-patches/releases/download/v1.3.0/patches-1.3.0.mpp",
   "signature_download_url": "",
-  "version": "1.2.0"
+  "version": "1.3.0"
 }
