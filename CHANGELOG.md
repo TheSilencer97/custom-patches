@@ -1,3 +1,9 @@
+## [1.4.0](https://github.com/TheSilencer97/custom-patches/compare/v1.3.0...v1.4.0) (2026-11-01)
+
+### ✨ New Features
+
+* hook AdInstanceManager trackAd and EntitlementInfosMapperKt ([c2836c7](https://github.com/TheSilencer97/custom-patches/commit/c2836c77516b90e1bbbb7311b7d46f0a9187dce9))
+
 ## [1.3.0](https://github.com/TheSilencer97/custom-patches/compare/v1.2.0...v1.3.0) (2026-11-01)
 
 ### ✨ New Features
