@@ -1,3 +1,9 @@
+## [1.6.0](https://github.com/TheSilencer97/custom-patches/compare/v1.5.0...v1.6.0) (2026-11-01)
+
+### ✨ New Features
+
+* extract libapp on demand and dump revenuecat mapper ([48d3f84](https://github.com/TheSilencer97/custom-patches/commit/48d3f84b39939710cdab08554d3dac82adf8e714))
+
 ## [1.5.0](https://github.com/TheSilencer97/custom-patches/compare/v1.4.1...v1.5.0) (2026-11-01)
 
 ### ✨ New Features
