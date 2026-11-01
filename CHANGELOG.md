@@ -1,3 +1,9 @@
+## [1.4.1](https://github.com/TheSilencer97/custom-patches/compare/v1.4.0...v1.4.1) (2026-11-01)
+
+### 🐛 Bug Fixes
+
+* prevent null crash in revenuecat mapper and hook load at index 0 ([f4e81e6](https://github.com/TheSilencer97/custom-patches/commit/f4e81e6d818f15f38384f8bec5b2688060403dfd))
+
 ## [1.4.0](https://github.com/TheSilencer97/custom-patches/compare/v1.3.0...v1.4.0) (2026-11-01)
 
 ### ✨ New Features
