@@ -1,3 +1,9 @@
+## [1.5.0](https://github.com/TheSilencer97/custom-patches/compare/v1.4.1...v1.5.0) (2026-11-01)
+
+### ✨ New Features
+
+* hook customerinfo map and scan libapp for exact entitlement id ([6371905](https://github.com/TheSilencer97/custom-patches/commit/6371905eb2103078583fcdf40d785a94e2d4dd00))
+
 ## [1.4.1](https://github.com/TheSilencer97/custom-patches/compare/v1.4.0...v1.4.1) (2026-11-01)
 
 ### 🐛 Bug Fixes
