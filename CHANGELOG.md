@@ -1,3 +1,9 @@
+## [1.10.0](https://github.com/TheSilencer97/custom-patches/compare/v1.9.0...v1.10.0) (2026-11-02)
+
+### ✨ New Features
+
+* optimize universal ad space collapsing and expand ad sdk coverage ([55e53de](https://github.com/TheSilencer97/custom-patches/commit/55e53de66059a806529b7741383c8ed2f66d16d9))
+
 ## [1.9.0](https://github.com/TheSilencer97/custom-patches/compare/v1.8.0...v1.9.0) (2026-11-02)
 
 ### ✨ New Features
