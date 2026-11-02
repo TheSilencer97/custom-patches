@@ -1,3 +1,9 @@
+## [1.7.0](https://github.com/TheSilencer97/custom-patches/compare/v1.6.1...v1.7.0) (2026-11-02)
+
+### ✨ New Features
+
+* set future Long expirationDate and capture live store product ids ([dab1b87](https://github.com/TheSilencer97/custom-patches/commit/dab1b87047e196292bf97e0cabdc1757b7c2427c))
+
 ## [1.6.1](https://github.com/TheSilencer97/custom-patches/compare/v1.6.0...v1.6.1) (2026-11-01)
 
 ### 🐛 Bug Fixes
