@@ -1,3 +1,9 @@
+## [1.8.0](https://github.com/TheSilencer97/custom-patches/compare/v1.7.1...v1.8.0) (2026-11-02)
+
+### ✨ New Features
+
+* populate all activeSubscriptions keys and fix from16 product capture ([71258bd](https://github.com/TheSilencer97/custom-patches/commit/71258bde3da3b4c8e9e84d91da09edebfddd1380))
+
 ## [1.7.1](https://github.com/TheSilencer97/custom-patches/compare/v1.7.0...v1.7.1) (2026-11-02)
 
 ### 🐛 Bug Fixes
