@@ -1,10 +1,8 @@
 package app.morphe.patches.example
 
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
-import app.morphe.patcher.extensions.InstructionExtensions.instructions
 import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patcher.patch.resourcePatch
-import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 import org.w3c.dom.Element
 import java.io.File
 import java.util.logging.Logger
@@ -127,19 +125,19 @@ private val collapseAdResourcesPatch = resourcePatch {
                 val libFile = get(rel)
                 if (libFile.exists() && libFile.isFile) {
                     val strings = extractStringsFromBinary(libFile)
-                    val idRegex = Regex(
-                        "^[a-zA-Z0-9_\$]+([_.\\-][a-zA-Z0-9_]+)+$"
-                    )
                     val keywordRegex = Regex(
-                        "(?i)(adfree|ad_free|ad-free|remove_ads|removeads|entitle|rc_|offering|yearly|annual|monthly|subscr|liquipedia|teamliquid|premium|supporter|turbo|banner_ad|ad_unit|ad_store)"
+                        "(?i)(restore|adfree|ad_free|ad-free|remove_ads|removeads|no_ads|noads|entitle|rc_|offering|yearly|annual|subscr|liquipedia|teamliquid)"
                     )
                     val hits = strings.filter { s ->
-                        s.length in 3..60 && !s.startsWith("package:") &&
-                            idRegex.matches(s) && keywordRegex.containsMatchIn(s)
+                        s.length in 3..90 &&
+                            !s.startsWith("package:") &&
+                            !s.startsWith("dart:") &&
+                            !s.startsWith("flutter") &&
+                            keywordRegex.containsMatchIn(s)
                     }.distinct()
-                    logger.info("[X-Ray DartIds] Total IDs: ${hits.size}")
-                    hits.take(120).chunked(6).forEach { chunk ->
-                        logger.info("[X-Ray DartIds] $chunk")
+                    logger.info("[X-Ray DartStrings] Total non-package matches: ${hits.size}")
+                    hits.take(150).chunked(5).forEach { chunk ->
+                        logger.info("[X-Ray DartStrings] $chunk")
                     }
                 }
             }
@@ -167,27 +165,8 @@ val examplePatch = bytecodePatch(
         var adInstanceManagerType: String? = null
         var onAdFailedMethodName: String? = null
 
-        val inspectClasses = setOf(
-            "Lcom/revenuecat/purchases/hybridcommon/CommonKt\$getCustomerInfo\$1;",
-            "Lcom/revenuecat/purchases/hybridcommon/CommonKt\$getCustomerInfo\$2;",
-            "Lcom/revenuecat/purchases_flutter/PurchasesFlutterPlugin;"
-        )
-
         classDefForEach { classDef ->
             val type = classDef.type
-            if (inspectClasses.contains(type)) {
-                for (m in classDef.methods) {
-                    if (m.name == "invoke" || m.name == "getCustomerInfo" || m.name == "setupPurchases") {
-                        val refs = runCatching {
-                            m.instructions.mapNotNull { insn ->
-                                (insn as? ReferenceInstruction)?.reference?.toString()
-                            }
-                        }.getOrDefault(emptyList())
-                        logger.info("[X-Ray Inspect] $type->${m.name}${m.parameterTypes} regs=${m.implementation?.registerCount} refs=$refs")
-                    }
-                }
-            }
-
             if (type == "Lcom/google/ads/mediation/AbstractAdViewAdapter;") {
                 for (m in classDef.methods) {
                     if (m.name == "requestBannerAd" && m.parameterTypes.size >= 4) {
@@ -237,6 +216,8 @@ val examplePatch = bytecodePatch(
             if (isInUnmaskedAdMob || isInUnmaskedFlutterAds ||
                 discoveredAdSizeClasses.contains(type) ||
                 type == "Lcom/revenuecat/purchases/hybridcommon/mappers/EntitlementInfosMapperKt;" ||
+                type == "Lcom/revenuecat/purchases/hybridcommon/mappers/OfferingsMapperKt;" ||
+                type == "Lcom/revenuecat/purchases/hybridcommon/mappers/StoreProductMapperKt;" ||
                 type == "Lcom/revenuecat/purchases/CustomerInfo;" ||
                 adSizeClassRegex.matches(type) ||
                 adViewClassRegex.matches(type) ||
@@ -269,7 +250,75 @@ val examplePatch = bytecodePatch(
                 val isInUnmaskedAdMob = discoveredAdMobPackages.any { type.startsWith(it) }
                 val isInUnmaskedFlutterAds = discoveredFlutterAdsPackages.any { type.startsWith(it) }
 
-                // 1. Build 100% type-accurate EntitlementInfo map with Long timestamps in EntitlementInfosMapperKt.map
+                // 0. Capture live Offering ID, Package ID, Product ID, and SKU from RevenueCat server responses
+                if (type == "Lcom/revenuecat/purchases/hybridcommon/mappers/OfferingsMapperKt;") {
+                    for (method in mutableClass.methods) {
+                        val regCount = method.implementation?.registerCount ?: 0
+                        if (method.name == "map" &&
+                            method.parameterTypes.size == 1 &&
+                            method.parameterTypes[0] == "Lcom/revenuecat/purchases/Offering;" &&
+                            regCount >= 4
+                        ) {
+                            runCatching {
+                                method.addInstructions(
+                                    0,
+                                    """
+                                        invoke-virtual {p0}, Lcom/revenuecat/purchases/Offering;->getIdentifier()Ljava/lang/String;
+                                        move-result-object v0
+                                        const-string v1, "rc.off"
+                                        invoke-static {v1, v0}, Ljava/lang/System;->setProperty(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+                                    """
+                                )
+                                logger.info("[X-Ray RevenueCat] Hooked OfferingsMapperKt.map(Offering) to capture live Offering ID")
+                            }
+                        } else if (method.name == "map" &&
+                            method.parameterTypes.size == 1 &&
+                            method.parameterTypes[0] == "Lcom/revenuecat/purchases/Package;" &&
+                            regCount >= 4
+                        ) {
+                            runCatching {
+                                method.addInstructions(
+                                    0,
+                                    """
+                                        invoke-virtual {p0}, Lcom/revenuecat/purchases/Package;->getIdentifier()Ljava/lang/String;
+                                        move-result-object v0
+                                        const-string v1, "rc.pkg"
+                                        invoke-static {v1, v0}, Ljava/lang/System;->setProperty(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+                                    """
+                                )
+                                logger.info("[X-Ray RevenueCat] Hooked OfferingsMapperKt.map(Package) to capture live Package ID")
+                            }
+                        }
+                    }
+                } else if (type == "Lcom/revenuecat/purchases/hybridcommon/mappers/StoreProductMapperKt;") {
+                    for (method in mutableClass.methods) {
+                        val regCount = method.implementation?.registerCount ?: 0
+                        if (method.name == "map" &&
+                            method.parameterTypes.size == 1 &&
+                            method.parameterTypes[0] == "Lcom/revenuecat/purchases/models/StoreProduct;" &&
+                            regCount >= 4
+                        ) {
+                            runCatching {
+                                method.addInstructions(
+                                    0,
+                                    """
+                                        invoke-interface {p0}, Lcom/revenuecat/purchases/models/StoreProduct;->getId()Ljava/lang/String;
+                                        move-result-object v0
+                                        const-string v1, "rc.prod"
+                                        invoke-static {v1, v0}, Ljava/lang/System;->setProperty(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+                                        invoke-interface {p0}, Lcom/revenuecat/purchases/models/StoreProduct;->getSku()Ljava/lang/String;
+                                        move-result-object v0
+                                        const-string v1, "rc.sku"
+                                        invoke-static {v1, v0}, Ljava/lang/System;->setProperty(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+                                    """
+                                )
+                                logger.info("[X-Ray RevenueCat] Hooked StoreProductMapperKt.map to capture live Product ID & SKU")
+                            }
+                        }
+                    }
+                }
+
+                // 1. Build 100% type-accurate EntitlementInfo map with non-null future Long expirationDate
                 if (type == "Lcom/revenuecat/purchases/hybridcommon/mappers/EntitlementInfosMapperKt;") {
                     for (method in mutableClass.methods) {
                         val regCount = method.implementation?.registerCount ?: 0
@@ -299,7 +348,7 @@ val examplePatch = bytecodePatch(
                             sb.appendLine("const-string v1, \"originalPurchaseDate\"")
                             sb.appendLine("invoke-virtual {v0, v1, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
 
-                            // Genuine java.lang.Long via Date + MappersHelpersKt.toMillis
+                            // Genuine java.lang.Long purchase timestamps
                             sb.appendLine("new-instance v2, Ljava/util/Date;")
                             sb.appendLine("invoke-direct {v2}, Ljava/util/Date;-><init>()V")
                             sb.appendLine("invoke-static {v2}, Lcom/revenuecat/purchases/hybridcommon/mappers/MappersHelpersKt;->toMillis(Ljava/util/Date;)J")
@@ -311,12 +360,17 @@ val examplePatch = bytecodePatch(
                             sb.appendLine("const-string v1, \"originalPurchaseDateMillis\"")
                             sb.appendLine("invoke-virtual {v0, v1, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
 
-                            // Null expirationDate & expirationDateMillis (lifetime/non-expiring)
-                            sb.appendLine("const/4 v2, 0x0")
+                            // Non-null future expirationDate & Long expirationDateMillis (2030-12-22T04:49:08Z = 0x1c000000000L)
                             sb.appendLine("const-string v1, \"expirationDate\"")
+                            sb.appendLine("const-string v2, \"2030-12-22T04:49:08Z\"")
                             sb.appendLine("invoke-virtual {v0, v1, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
+                            sb.appendLine("const-wide v2, 0x1c000000000L")
+                            sb.appendLine("invoke-static {v2, v3}, Ljava/lang/Long;->valueOf(J)Ljava/lang/Long;")
+                            sb.appendLine("move-result-object v2")
                             sb.appendLine("const-string v1, \"expirationDateMillis\"")
                             sb.appendLine("invoke-virtual {v0, v1, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
+
+                            sb.appendLine("const/4 v2, 0x0")
                             sb.appendLine("const-string v1, \"unsubscribeDetectedAt\"")
                             sb.appendLine("invoke-virtual {v0, v1, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
                             sb.appendLine("const-string v1, \"unsubscribeDetectedAtMillis\"")
@@ -326,13 +380,20 @@ val examplePatch = bytecodePatch(
                             sb.appendLine("const-string v1, \"billingIssueDetectedAtMillis\"")
                             sb.appendLine("invoke-virtual {v0, v1, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
                             sb.appendLine("const-string v1, \"productPlanIdentifier\"")
+                            sb.appendLine("const-string v2, \"yearly\"")
                             sb.appendLine("invoke-virtual {v0, v1, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
                             sb.appendLine("const-string v1, \"store\"")
                             sb.appendLine("const-string v2, \"PLAY_STORE\"")
                             sb.appendLine("invoke-virtual {v0, v1, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
+
+                            // Use live captured productIdentifier ("rc.prod") if available, fallback to "ad_free"
+                            sb.appendLine("const-string v1, \"rc.prod\"")
+                            sb.appendLine("const-string v2, \"ad_free\"")
+                            sb.appendLine("invoke-static {v1, v2}, Ljava/lang/System;->getProperty(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;")
+                            sb.appendLine("move-result-object v2")
                             sb.appendLine("const-string v1, \"productIdentifier\"")
-                            sb.appendLine("const-string v2, \"entitlement\"")
                             sb.appendLine("invoke-virtual {v0, v1, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
+
                             sb.appendLine("const-string v1, \"ownershipType\"")
                             sb.appendLine("const-string v2, \"PURCHASED\"")
                             sb.appendLine("invoke-virtual {v0, v1, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
@@ -350,6 +411,18 @@ val examplePatch = bytecodePatch(
                                 sb.appendLine("invoke-virtual {v2, v4, v3}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
                                 sb.appendLine("invoke-virtual {v1, v3, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
                             }
+                            // Also inject any live-captured IDs from RevenueCat ("rc.off", "rc.pkg", "rc.prod", "rc.sku")
+                            for (prop in listOf("rc.off", "rc.pkg", "rc.prod", "rc.sku")) {
+                                sb.appendLine("const-string v3, \"$prop\"")
+                                sb.appendLine("const-string v2, \"default\"")
+                                sb.appendLine("invoke-static {v3, v2}, Ljava/lang/System;->getProperty(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;")
+                                sb.appendLine("move-result-object v3")
+                                sb.appendLine("new-instance v2, Ljava/util/HashMap;")
+                                sb.appendLine("invoke-direct {v2, v0}, Ljava/util/HashMap;-><init>(Ljava/util/Map;)V")
+                                sb.appendLine("invoke-virtual {v2, v4, v3}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
+                                sb.appendLine("invoke-virtual {v1, v3, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
+                            }
+
                             sb.appendLine("new-instance v0, Ljava/util/HashMap;")
                             sb.appendLine("invoke-direct {v0}, Ljava/util/HashMap;-><init>()V")
                             sb.appendLine("const-string v2, \"all\"")
@@ -363,9 +436,7 @@ val examplePatch = bytecodePatch(
 
                             runCatching {
                                 method.addInstructions(0, sb.toString())
-                                logger.info("[X-Ray RevenueCat] Hooked EntitlementInfosMapperKt.map (${entitlementKeys.size} keys with Long timestamps)")
-                            }.onFailure { e ->
-                                logger.info("[X-Ray RCMapper Error] ${e.message}")
+                                logger.info("[X-Ray RevenueCat] Hooked EntitlementInfosMapperKt.map with future expirationDate + live props")
                             }
                         }
                     }
@@ -381,12 +452,31 @@ val examplePatch = bytecodePatch(
                                 method.addInstructions(
                                     0,
                                     """
-                                        const-string v0, "entitlement"
+                                        const-string v0, "rc.prod"
+                                        const-string p0, "ad_free"
+                                        invoke-static {v0, p0}, Ljava/lang/System;->getProperty(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+                                        move-result-object v0
                                         invoke-static {v0}, Ljava/util/Collections;->singleton(Ljava/lang/Object;)Ljava/util/Set;
                                         move-result-object v0
                                         return-object v0
                                     """
                                 )
+                            }
+                        } else if (method.name == "getLatestExpirationDate" &&
+                            method.parameterTypes.isEmpty() &&
+                            method.returnType == "Ljava/util/Date;" &&
+                            regCount >= 2
+                        ) {
+                            runCatching {
+                                method.addInstructions(
+                                    0,
+                                    """
+                                        new-instance v0, Ljava/util/Date;
+                                        invoke-direct {v0}, Ljava/util/Date;-><init>()V
+                                        return-object v0
+                                    """
+                                )
+                                logger.info("[X-Ray RevenueCat] Hooked CustomerInfo->getLatestExpirationDate")
                             }
                         }
                     }
