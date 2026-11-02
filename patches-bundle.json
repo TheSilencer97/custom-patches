@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-02T01:30:58",
-  "description": "## [1.8.0](https://github.com/TheSilencer97/custom-patches/compare/v1.7.1...v1.8.0) (2026-11-02)\n\n### ✨ New Features\n\n* populate all activeSubscriptions keys and fix from16 product capture ([71258bd](https://github.com/TheSilencer97/custom-patches/commit/71258bde3da3b4c8e9e84d91da09edebfddd1380))",
-  "download_url": "https://github.com/TheSilencer97/custom-patches/releases/download/v1.8.0/patches-1.8.0.mpp",
+  "created_at": "2026-11-02T02:00:22",
+  "description": "## [1.9.0](https://github.com/TheSilencer97/custom-patches/compare/v1.8.0...v1.9.0) (2026-11-02)\n\n### ✨ New Features\n\n* redirect flutter onAdFailedToLoad to onAdLoaded with 0x0 size ([2efb780](https://github.com/TheSilencer97/custom-patches/commit/2efb7808f960326d342b700362ad95d603dd7d2d))",
+  "download_url": "https://github.com/TheSilencer97/custom-patches/releases/download/v1.9.0/patches-1.9.0.mpp",
   "signature_download_url": "",
-  "version": "1.8.0"
+  "version": "1.9.0"
 }

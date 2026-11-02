@@ -1,3 +1,9 @@
+## [1.9.0](https://github.com/TheSilencer97/custom-patches/compare/v1.8.0...v1.9.0) (2026-11-02)
+
+### ✨ New Features
+
+* redirect flutter onAdFailedToLoad to onAdLoaded with 0x0 size ([2efb780](https://github.com/TheSilencer97/custom-patches/commit/2efb7808f960326d342b700362ad95d603dd7d2d))
+
 ## [1.8.0](https://github.com/TheSilencer97/custom-patches/compare/v1.7.1...v1.8.0) (2026-11-02)
 
 ### ✨ New Features

@@ -19,14 +19,14 @@ Click the button below, or manually add this repo url to Morphe Manager: https:/
 ## 🩹 Patches list
 
 <!-- PATCHES_START EXPANDED -->
-> **[v1.8.0](https://github.com/TheSilencer97/custom-patches/releases/tag/v1.8.0)**&nbsp;&nbsp;•&nbsp;&nbsp;`main`&nbsp;&nbsp;•&nbsp;&nbsp;1 patches total
+> **[v1.9.0](https://github.com/TheSilencer97/custom-patches/releases/tag/v1.9.0)**&nbsp;&nbsp;•&nbsp;&nbsp;`main`&nbsp;&nbsp;•&nbsp;&nbsp;1 patches total
 <details open>
 <summary>🌐 Universal&nbsp;&nbsp;•&nbsp;&nbsp;1 patch</summary>
 <br>
 
 | 💊&nbsp;Patch | 📜&nbsp;Description | ⚙️&nbsp;Options |
 |----------|----------------|-----------|
-| [Collapse Ad Space](#collapse-ad-space) | Collapses empty ad banners, placeholders, Flutter ads, and RevenueCat ad-free state. |  |
+| [Collapse Ad Space](#collapse-ad-space) | Collapses empty ad banners, placeholders, and Flutter ads using 0x0 onAdLoaded state. |  |
 
 </details>
 
