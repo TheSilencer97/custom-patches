@@ -1,10 +1,8 @@
 package app.morphe.patches.example
 
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
-import app.morphe.patcher.extensions.InstructionExtensions.instructions
 import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patcher.patch.resourcePatch
-import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 import org.w3c.dom.Element
 import java.io.File
 import java.util.logging.Logger
@@ -12,8 +10,8 @@ import java.util.logging.Logger
 private val logger = Logger.getLogger("CollapseAdSpace")
 
 private val entitlementKeys = listOf(
-    "entitlement", "entitlements", "offering", "\$rc_annual", "annual", "yearly",
-    "Subscribed to Ad-Free (Yearly)", "com.liquipedia.app",
+    "entitlement", "entitlements", "offering", "\$rc_annual", "annual", "yearly", "ANNUAL",
+    "Subscribed to Ad-Free (Yearly)", "com.liquipedia.app", "com.teamliquid.liquipedia",
     "ad_free", "ad-free", "adfree", "AdFree", "adFree", "Ad-Free", "AD_FREE",
     "Ad Free", "ad free", "Ad free",
     "Remove Ads", "Remove ads", "remove_ads", "remove-ads", "removeAds", "removeads",
@@ -21,7 +19,7 @@ private val entitlementKeys = listOf(
     "ad_free_experience", "ad-free-experience", "Ad-Free Experience",
     "ad_free_access", "ad_free_yearly", "ad_free_monthly", "ad_free_subscription", "ad_free_entitlement",
     "liquipedia_ad_free", "liquipedia_pro", "liquipedia_premium", "liquipedia_supporter", "liquipedia_turbo",
-    "pro", "Pro", "premium", "Premium", "plus", "Plus", "supporter", "turbo", "default"
+    "pro", "Pro", "premium", "Premium", "plus", "Plus", "supporter", "turbo", "Turbo", "default"
 )
 
 private val adTokenRegex = Regex(
@@ -128,30 +126,28 @@ private val collapseAdResourcesPatch = resourcePatch {
                 if (libFile.exists() && libFile.isFile) {
                     val strings = extractStringsFromBinary(libFile)
 
-                    // 1. All symbols belonging to the 5 Ad-Free Dart libraries
-                    val libIds = listOf("1124069602", "1553215000", "1256349677", "1632274488", "1179411185")
-                    val libSymbols = strings.filter { s -> libIds.any { id -> s.contains(id) } }.distinct()
-                    logger.info("[X-Ray DartLibs] Symbols in Ad-Free files (${libSymbols.size}): $libSymbols")
-
-                    // 2. Filtered keyword matches (excluding StreamSubscription & localization noise)
-                    val keywordRegex = Regex(
-                        "(?i)(restore|adfree|ad_free|ad-free|remove_ads|removeads|no_ads|noads|entitle|rc_|offering|yearly|annual|subscr|teamliquid|premium|supporter|turbo|product_id|productid|plan_id|base_plan)"
+                    // 1. Print neighbors around key anchors in libapp.so
+                    val anchors = setOf(
+                        "goog_yAwjsWpnDhBAvIuJeUqeJDiyTie",
+                        "_hasAdFreeEntitlement@1256349677",
+                        "_mapPackageType@1256349677",
+                        "entitlement",
+                        "showRemoveAdsButton",
+                        "_remove_ads_button_beneath_large_ads_type"
                     )
-                    val noiseRegex = Regex(
-                        "(?i)(StreamSubscription|Liquipedia page|Liquipedia-pagina|Liquipedia-Seite|page Liquipedia|Liquipedia oldala|na Liquipedia|MutationSubscribe|MutationUnSubscribe|NotificationSubscription)"
-                    )
-                    val hits = strings.filter { s ->
-                        s.length in 3..90 &&
-                            !s.startsWith("package:") &&
-                            !s.startsWith("dart:") &&
-                            !s.startsWith("flutter") &&
-                            keywordRegex.containsMatchIn(s) &&
-                            !noiseRegex.containsMatchIn(s)
-                    }.distinct()
-                    logger.info("[X-Ray DartStrings] Total clean matches: ${hits.size}")
-                    hits.chunked(5).forEach { chunk ->
-                        logger.info("[X-Ray DartStrings] $chunk")
+                    for (i in strings.indices) {
+                        val s = strings[i]
+                        if (s in anchors) {
+                            val start = (i - 8).coerceAtLeast(0)
+                            val end = (i + 8).coerceAtMost(strings.size - 1)
+                            logger.info("[X-Ray Anchor] '$s' -> ${strings.subList(start, end + 1)}")
+                        }
                     }
+
+                    // 2. Find all private @<id> symbols related to AdStore / Ads / Purchases / Restore
+                    val privRegex = Regex("(?i).*(adFree|removeAds|entitle|adStore|bannerAd|restore|offering|purchase).*@[0-9]+.*")
+                    val privHits = strings.filter { privRegex.matches(it) }.distinct()
+                    logger.info("[X-Ray PrivSymbols] (${privHits.size}): $privHits")
                 }
             }
         }
@@ -178,26 +174,8 @@ val examplePatch = bytecodePatch(
         var adInstanceManagerType: String? = null
         var onAdFailedMethodName: String? = null
 
-        val inspectClasses = setOf(
-            "Lcom/revenuecat/purchases_flutter/PurchasesFlutterPlugin;",
-            "Lcom/revenuecat/purchases/EntitlementInfos;"
-        )
-
         classDefForEach { classDef ->
             val type = classDef.type
-            if (inspectClasses.contains(type)) {
-                for (m in classDef.methods) {
-                    if (m.name in setOf("a", "b", "c", "d", "setUpdatedCustomerInfoListener", "restorePurchases", "<init>", "get", "getActive", "getAll")) {
-                        val refs = runCatching {
-                            m.instructions.mapNotNull { insn ->
-                                (insn as? ReferenceInstruction)?.reference?.toString()
-                            }
-                        }.getOrDefault(emptyList())
-                        logger.info("[X-Ray Inspect] $type->${m.name}${m.parameterTypes} regs=${m.implementation?.registerCount} refs=$refs")
-                    }
-                }
-            }
-
             if (type == "Lcom/google/ads/mediation/AbstractAdViewAdapter;") {
                 for (m in classDef.methods) {
                     if (m.name == "requestBannerAd" && m.parameterTypes.size >= 4) {
@@ -247,6 +225,8 @@ val examplePatch = bytecodePatch(
             if (isInUnmaskedAdMob || isInUnmaskedFlutterAds ||
                 discoveredAdSizeClasses.contains(type) ||
                 type == "Lcom/revenuecat/purchases/hybridcommon/mappers/EntitlementInfosMapperKt;" ||
+                type == "Lcom/revenuecat/purchases/hybridcommon/mappers/OfferingsMapperKt;" ||
+                type == "Lcom/revenuecat/purchases/hybridcommon/mappers/StoreProductMapperKt;" ||
                 type == "Lcom/revenuecat/purchases/CustomerInfo;" ||
                 adSizeClassRegex.matches(type) ||
                 adViewClassRegex.matches(type) ||
@@ -279,7 +259,79 @@ val examplePatch = bytecodePatch(
                 val isInUnmaskedAdMob = discoveredAdMobPackages.any { type.startsWith(it) }
                 val isInUnmaskedFlutterAds = discoveredFlutterAdsPackages.any { type.startsWith(it) }
 
-                // 1. Build 100% crash-proof EntitlementInfo map with non-null future Long expirationDate
+                // 0. Safely capture live Offering ID, Package ID, Product ID, and SKU using move-object/from16
+                if (type == "Lcom/revenuecat/purchases/hybridcommon/mappers/OfferingsMapperKt;") {
+                    for (method in mutableClass.methods) {
+                        val regCount = method.implementation?.registerCount ?: 0
+                        if (method.name == "map" &&
+                            method.parameterTypes.size == 1 &&
+                            method.parameterTypes[0] == "Lcom/revenuecat/purchases/Offering;" &&
+                            regCount >= 4
+                        ) {
+                            runCatching {
+                                method.addInstructions(
+                                    0,
+                                    """
+                                        move-object/from16 v0, p0
+                                        invoke-virtual {v0}, Lcom/revenuecat/purchases/Offering;->getIdentifier()Ljava/lang/String;
+                                        move-result-object v0
+                                        const-string v1, "rc.off"
+                                        invoke-static {v1, v0}, Ljava/lang/System;->setProperty(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+                                    """
+                                )
+                                logger.info("[X-Ray RevenueCat] Hooked OfferingsMapperKt.map(Offering) safely")
+                            }
+                        } else if (method.name == "map" &&
+                            method.parameterTypes.size == 1 &&
+                            method.parameterTypes[0] == "Lcom/revenuecat/purchases/Package;" &&
+                            regCount >= 4
+                        ) {
+                            runCatching {
+                                method.addInstructions(
+                                    0,
+                                    """
+                                        move-object/from16 v0, p0
+                                        invoke-virtual {v0}, Lcom/revenuecat/purchases/Package;->getIdentifier()Ljava/lang/String;
+                                        move-result-object v0
+                                        const-string v1, "rc.pkg"
+                                        invoke-static {v1, v0}, Ljava/lang/System;->setProperty(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+                                    """
+                                )
+                                logger.info("[X-Ray RevenueCat] Hooked OfferingsMapperKt.map(Package) safely")
+                            }
+                        }
+                    }
+                } else if (type == "Lcom/revenuecat/purchases/hybridcommon/mappers/StoreProductMapperKt;") {
+                    for (method in mutableClass.methods) {
+                        val regCount = method.implementation?.registerCount ?: 0
+                        if (method.name == "map" &&
+                            method.parameterTypes.size == 1 &&
+                            method.parameterTypes[0] == "Lcom/revenuecat/purchases/models/StoreProduct;" &&
+                            regCount >= 4
+                        ) {
+                            runCatching {
+                                method.addInstructions(
+                                    0,
+                                    """
+                                        move-object/from16 v0, p0
+                                        invoke-interface {v0}, Lcom/revenuecat/purchases/models/StoreProduct;->getId()Ljava/lang/String;
+                                        move-result-object v0
+                                        const-string v1, "rc.prod"
+                                        invoke-static {v1, v0}, Ljava/lang/System;->setProperty(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+                                        move-object/from16 v0, p0
+                                        invoke-interface {v0}, Lcom/revenuecat/purchases/models/StoreProduct;->getSku()Ljava/lang/String;
+                                        move-result-object v0
+                                        const-string v1, "rc.sku"
+                                        invoke-static {v1, v0}, Ljava/lang/System;->setProperty(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+                                    """
+                                )
+                                logger.info("[X-Ray RevenueCat] Hooked StoreProductMapperKt.map safely")
+                            }
+                        }
+                    }
+                }
+
+                // 1. Build 100% crash-proof EntitlementInfo map with non-null future Long expirationDate + live props
                 if (type == "Lcom/revenuecat/purchases/hybridcommon/mappers/EntitlementInfosMapperKt;") {
                     for (method in mutableClass.methods) {
                         val regCount = method.implementation?.registerCount ?: 0
@@ -351,9 +403,15 @@ val examplePatch = bytecodePatch(
                             sb.appendLine("const-string v1, \"store\"")
                             sb.appendLine("const-string v2, \"PLAY_STORE\"")
                             sb.appendLine("invoke-virtual {v0, v1, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
-                            sb.appendLine("const-string v1, \"productIdentifier\"")
+
+                            // Use live captured productIdentifier ("rc.prod") if available
+                            sb.appendLine("const-string v1, \"rc.prod\"")
                             sb.appendLine("const-string v2, \"ad_free\"")
+                            sb.appendLine("invoke-static {v1, v2}, Ljava/lang/System;->getProperty(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;")
+                            sb.appendLine("move-result-object v2")
+                            sb.appendLine("const-string v1, \"productIdentifier\"")
                             sb.appendLine("invoke-virtual {v0, v1, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
+
                             sb.appendLine("const-string v1, \"ownershipType\"")
                             sb.appendLine("const-string v2, \"PURCHASED\"")
                             sb.appendLine("invoke-virtual {v0, v1, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
@@ -371,6 +429,16 @@ val examplePatch = bytecodePatch(
                                 sb.appendLine("invoke-virtual {v2, v4, v3}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
                                 sb.appendLine("invoke-virtual {v1, v3, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
                             }
+                            for (prop in listOf("rc.off", "rc.pkg", "rc.prod", "rc.sku")) {
+                                sb.appendLine("const-string v3, \"$prop\"")
+                                sb.appendLine("const-string v2, \"default\"")
+                                sb.appendLine("invoke-static {v3, v2}, Ljava/lang/System;->getProperty(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;")
+                                sb.appendLine("move-result-object v3")
+                                sb.appendLine("new-instance v2, Ljava/util/HashMap;")
+                                sb.appendLine("invoke-direct {v2, v0}, Ljava/util/HashMap;-><init>(Ljava/util/Map;)V")
+                                sb.appendLine("invoke-virtual {v2, v4, v3}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
+                                sb.appendLine("invoke-virtual {v1, v3, v2}, Ljava/util/HashMap;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
+                            }
 
                             sb.appendLine("new-instance v0, Ljava/util/HashMap;")
                             sb.appendLine("invoke-direct {v0}, Ljava/util/HashMap;-><init>()V")
@@ -385,7 +453,7 @@ val examplePatch = bytecodePatch(
 
                             runCatching {
                                 method.addInstructions(0, sb.toString())
-                                logger.info("[X-Ray RevenueCat] Hooked EntitlementInfosMapperKt.map safely with future Long expirationDate")
+                                logger.info("[X-Ray RevenueCat] Hooked EntitlementInfosMapperKt.map safely with future Long expirationDate + live props")
                             }
                         }
                     }
@@ -397,16 +465,23 @@ val examplePatch = bytecodePatch(
                             method.returnType == "Ljava/util/Set;" &&
                             regCount >= 2
                         ) {
+                            val sb = StringBuilder()
+                            sb.appendLine("new-instance v0, Ljava/util/HashSet;")
+                            sb.appendLine("invoke-direct {v0}, Ljava/util/HashSet;-><init>()V")
+                            for (key in entitlementKeys) {
+                                sb.appendLine("const-string p0, \"$key\"")
+                                sb.appendLine("invoke-virtual {v0, p0}, Ljava/util/HashSet;->add(Ljava/lang/Object;)Z")
+                            }
+                            for (prop in listOf("rc.off", "rc.pkg", "rc.prod", "rc.sku")) {
+                                sb.appendLine("const-string p0, \"$prop\"")
+                                sb.appendLine("invoke-static {p0, p0}, Ljava/lang/System;->getProperty(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;")
+                                sb.appendLine("move-result-object p0")
+                                sb.appendLine("invoke-virtual {v0, p0}, Ljava/util/HashSet;->add(Ljava/lang/Object;)Z")
+                            }
+                            sb.appendLine("return-object v0")
                             runCatching {
-                                method.addInstructions(
-                                    0,
-                                    """
-                                        const-string v0, "entitlement"
-                                        invoke-static {v0}, Ljava/util/Collections;->singleton(Ljava/lang/Object;)Ljava/util/Set;
-                                        move-result-object v0
-                                        return-object v0
-                                    """
-                                )
+                                method.addInstructions(0, sb.toString())
+                                logger.info("[X-Ray RevenueCat] Hooked CustomerInfo->${method.name} with all keys + live props")
                             }
                         } else if (method.name == "getLatestExpirationDate" &&
                             method.parameterTypes.isEmpty() &&
