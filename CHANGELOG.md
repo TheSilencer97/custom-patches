@@ -1,3 +1,9 @@
+## [1.7.1](https://github.com/TheSilencer97/custom-patches/compare/v1.7.0...v1.7.1) (2026-11-02)
+
+### 🐛 Bug Fixes
+
+* remove v24 register hook and log remaining dart ad-free symbols ([4e59662](https://github.com/TheSilencer97/custom-patches/commit/4e59662378ca8657579d8fd56611823f8a2d736a))
+
 ## [1.7.0](https://github.com/TheSilencer97/custom-patches/compare/v1.6.1...v1.7.0) (2026-11-02)
 
 ### ✨ New Features
